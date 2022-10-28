@@ -56,12 +56,12 @@ preferences:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_pass
-  #manual_ip:
-  #  static_ip: ${wifi_ip}
-  #  gateway: !secret gateway 
-  #  subnet: !secret subnet
-  #  dns1: !secret dns1
-  #  dns2: !secret dns2
+  manual_ip:
+    static_ip: ${wifi_ip}
+    gateway: !secret gateway 
+    subnet: !secret subnet
+    dns1: !secret dns1
+    dns2: !secret dns2
   ap:
     ssid:  ${upper_devicename} Hotspot
     password: !secret ap_wifi_pass
