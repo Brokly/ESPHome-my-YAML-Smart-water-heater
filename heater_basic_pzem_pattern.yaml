@@ -56,12 +56,12 @@ preferences:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_pass
-  manual_ip:
-    static_ip: ${wifi_ip}
-    gateway: !secret gateway 
-    subnet: !secret subnet
-    dns1: !secret dns1
-    dns2: !secret dns2
+  #manual_ip:
+  #  static_ip: ${wifi_ip}
+  #  gateway: !secret gateway 
+  #  subnet: !secret subnet
+  #  dns1: !secret dns1
+  #  dns2: !secret dns2
   ap:
     ssid:  ${upper_devicename} Hotspot
     password: !secret ap_wifi_pass
@@ -361,13 +361,15 @@ script:
            uint16_t _now=(id(sntp_time).now().hour)*60+id(sntp_time).now().minute;
            uint16_t start=id(store_on_time);
            uint16_t stop=id(store_off_time);
-           if(((start>stop && (_now>=start || _now<=stop)) ||
-              (start<stop && _now>=start && _now<=stop)) &&
-              id(${low_devicename}_termostate).mode!=CLIMATE_MODE_HEAT) {
-              ESP_LOGD("This","Start heating on time.");
-              id(script_climat_heat_on).execute();
+           //ESP_LOGE("", "start %u, stop %u, _now %u", start, stop, _now);
+           if((start>stop && (_now>=start || _now<=stop)) ||
+              (start<stop && _now>=start && _now<=stop)){
+              if(id(${low_devicename}_termostate).mode!=CLIMATE_MODE_HEAT) {
+                 ESP_LOGD("This","Start heating on time, %u:%02u.",_now/60,_now%60);
+                 id(script_climat_heat_on).execute();
+              }
            } else if(id(${low_devicename}_termostate).mode!=CLIMATE_MODE_OFF){
-              ESP_LOGD("This","Stop heating on time.");
+              ESP_LOGD("This","Stop heating on time, %u:%02u.",_now/60,_now%60);
               id(script_climat_heat_off).execute();
            }
         }
@@ -492,7 +494,7 @@ script:
          id(store_mode)=0;
 
 interval:
-  - interval: 1min
+  - interval: 30sec
     then:
       # каждую минуту проверяем правильность режима работы
       - script.execute: script_condition
