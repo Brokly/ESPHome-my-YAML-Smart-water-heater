@@ -133,7 +133,6 @@ binary_sensor:
     - min_length: 10ms
       max_length: 1000ms
       then:
-        - switch.toggle: relay
         - lambda: |-
            uint8_t temp=0;
            if(id(store_mode)==0){ // ручная кнопка не была нажата
@@ -143,6 +142,7 @@ binary_sensor:
               ESP_LOGD("This","Revert manual mode to OFF, from button. Restore modes and dest. temperature.");
               id(script_revert_manual).execute();
            }
+
 # restart esp , нужно зажать кнопку на 5000 секунд (ПОСЧИТАТЬ ДО 8)
     - min_length: 4000ms
       max_length: 6000ms
@@ -205,7 +205,7 @@ switch:
       - script.execute: script_turn_auto
     turn_off_action:
       - lambda: |-
-         if(id(store_mode) && id(script_revert_manual).is_running()!=true) {
+         if(id(store_mode) && id(script_revert_manual).is_running()==false) {
             ESP_LOGD("This","Reset manual mode, from switch 'auto'.");
             id(script_revert_manual).execute(); //отключить ручной режим
          }
@@ -328,6 +328,15 @@ number:
       - lambda: |-
           id(script_set_off_time).execute();
 
+#select:
+#  - platform: template
+#    name: $upper_devicename Select Test
+#    id: ${low_devicename}_select_test
+#    optimistic: true
+#    options:
+#      - 'Internal'
+#      - 'Floor'
+
 climate:
   # терморегуляция нагрева воды
   - platform: thermostat
@@ -354,7 +363,6 @@ time:
 script:
 # процедура проверки настроек и уравления климатом
   - id: script_condition
-    #mode: queued
     then:
       lambda: |-
         if(id(store_auto)){
@@ -372,10 +380,25 @@ script:
               ESP_LOGD("This","Stop heating on time, %u:%02u.",_now/60,_now%60);
               id(script_climat_heat_off).execute();
            }
+        } else if(id(store_mode)){
+           // проверка и корректировка работы в режиме мануал, если условия не соответствуют рабочему режимк
+           if(id(${low_devicename}_termostate).mode!=CLIMATE_MODE_HEAT){ // изменили режим работы в процессе ручного управления
+              ESP_LOGD("This","Set heating to off in manual mode, manual mode break." );
+              id(script_revert_manual).execute(); // вернуть рабочий режим, отключить ручной режим
+              id(script_climat_heat_off).execute(); // оставить в выключенном режиме                 
+           } else if(id(${low_devicename}_termostate).target_temperature!=${manual_temperature}){ // изменили температуру в ручном режиме
+              ESP_LOGD("This","Change temperature in manual mode, manual mode break." );
+              uint16_t temp=id(${low_devicename}_termostate).target_temperature;
+              id(script_revert_manual).execute(); // вернуть рабочий режим, отключить ручной режим
+              id(script_climat_heat_on).execute(); // оставить во включенном режиме
+              auto call = id(${low_devicename}_termostate).make_call(); // оставляем установленную температуру
+              call.set_target_temperature(temp);
+              call.perform();
+              id(${low_devicename}_termostate).refresh();
+           }
         }
 # процедура обработки переключения режимов кнопки AUTO
   - id: script_turn_auto
-    #mode: queued
     then:
       - lambda: |- 
           // сбросить возможно поднятый флаг аварии
@@ -392,21 +415,18 @@ script:
           id(script_condition).execute();
 # процедура публикации большых текстовых кусков, сворачиваем для работы в веб морде
   - id: script_show_text
-    #mode: queued
     then:
      -  lambda: |-
           id(${low_devicename}_location).publish_state("${location}");
           id(${low_devicename}_hardware).publish_state("SonOff Basic(одинарное реле, max 16 Amp) + PZEM-004T-100A(датчик тока и напряжения) + DS18B20(1-wire термометр).");
 # процедура публикации большых текстовых кусков, сворачиваем для работы в веб морде
   - id: script_hide_text
-    #mode: queued
     then:
      -  lambda: |-
           id(${low_devicename}_location).publish_state("Turn 'Hide Notes'");
           id(${low_devicename}_hardware).publish_state("Turn 'Hide Notes'");
 # процедура включения термостата на нагрева (проверяем флаг аварии, проверяем текущий режим работы, при необходимости включаем нагрев)
   - id: script_climat_heat_on
-    #mode: queued
     then:
      -  lambda: |-
           // только если нет аварийного флага и установлен не режим нагрева
@@ -416,21 +436,21 @@ script:
                 auto call = id(${low_devicename}_termostate).make_call();
                 call.set_mode("HEAT");
                 call.perform();
+                id(${low_devicename}_termostate).refresh();
             }
           } 
 # процедура выключения термостата
   - id: script_climat_heat_off
-    #mode: queued
     then:
      -  lambda: |-
          if(id(${low_devicename}_termostate).mode!=CLIMATE_MODE_OFF){
              auto call = id(${low_devicename}_termostate).make_call();
              call.set_mode("OFF");
              call.perform();
+             id(${low_devicename}_termostate).refresh();
           }
 # процедура установки и сохранения времени старта работы термостата
   - id: script_set_on_time
-    #mode: queued
     then:
      - lambda: |-
           // посчитать значение запуска и сохранить его
@@ -440,7 +460,6 @@ script:
           id(script_condition).execute();
 # процедура установки и сохранения времени окончании работы термостата
   - id: script_set_off_time
-    #mode: queued
     then:
      - lambda: |-
           // посчитать значение останова и сохранить его запуска
@@ -450,7 +469,6 @@ script:
           id(script_condition).execute();
 # процедура включения ручного режима
   - id: script_set_manual
-    #mode: queued
     then:
      - lambda: |-
          uint8_t temp=0;
@@ -468,12 +486,13 @@ script:
          auto call = id(${low_devicename}_termostate).make_call(); // температура в ручном режиме
          call.set_target_temperature(${manual_temperature});
          call.perform();
+         id(${low_devicename}_termostate).refresh();
          id(script_climat_heat_on).execute(); // включаем нагрев
-         id(${low_devicename}_operation_manual).publish_state(true);
          id(store_mode)=temp;
+         id(script_condition).execute();
+         id(${low_devicename}_operation_manual).publish_state(true);
 # процедура включения ручного режима
   - id: script_revert_manual
-    #mode: queued
     then:
      - lambda: |-
          if(id(store_mode)==1){ // был установлен режим работы по времени
@@ -486,12 +505,14 @@ script:
                auto call = id(${low_devicename}_termostate).make_call(); // температура в ручном режиме
                call.set_target_temperature(id(store_mode)-100);
                call.perform();
+               id(${low_devicename}_termostate).refresh();
             }
             id(${low_devicename}_auto).turn_off();
             id(script_climat_heat_on).execute();
          }
-         id(${low_devicename}_operation_manual).publish_state(false);
          id(store_mode)=0;
+         id(script_condition).execute();
+         id(${low_devicename}_operation_manual).publish_state(false);
 
 interval:
   - interval: 30sec
@@ -502,6 +523,11 @@ interval:
     then:
        # индикация ручного режима работы, мигаем синим.
        lambda: |-
+          if(id(${low_devicename}_overload).state){
+             if(id(script_climat_heat_off).is_running()==false){
+                id(script_climat_heat_off).execute();
+             }
+          }
           static uint8_t blink=3;
           if(id(store_mode)!=0){ // режим с нажатой кнопкой, НЕ мигаем, срет в лог :(
              if(blink!=1){
