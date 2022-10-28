@@ -1,0 +1,10 @@
+substitutions:
+  devicename: water-heater-bathroom
+  upper_devicename: Bathroom Water Heater
+  low_devicename: water_heater_bathroom
+  location: В ванной (в электо-бойлере)
+  dallas_senson_sn: "0xb93c01f096aa9f28"
+  manual_temperature: '80' #температура нагрева при ручном переключении
+  wifi_ip: !secret ip_water_heater_bathroom
+
+<<: !include heater_basic_pzem_pattern.yaml
